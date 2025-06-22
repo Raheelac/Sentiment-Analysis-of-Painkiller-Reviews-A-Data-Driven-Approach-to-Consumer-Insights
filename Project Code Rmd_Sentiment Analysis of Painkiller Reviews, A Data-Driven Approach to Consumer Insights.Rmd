@@ -1,0 +1,178 @@
+---
+title: "Painkiller project"
+author: "Raheela Charania, Emmanuel Wediko, Anmol Anchala"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readxl)
+pk <- read_excel("~/Desktop/painkillers_r.xlsx")
+#View(pk)
+
+
+####Preprocess data####
+#install.packages("tm")
+#install.packages("SnowballC")
+library(tm)
+library(SnowballC)
+corpus = Corpus(VectorSource(pk$reviews))
+corpus
+
+corpus[[1]]$content
+#in the above code we're pulling the first conetent from corpus which is the first tweet in this case. 
+
+?Corpus
+#corpus just means lots of documents 
+
+#convert all text to lowercase
+corpus = tm_map(corpus, tolower)
+corpus[[1]]$content
+
+#remove all punctuation
+corpus = tm_map(corpus, removePunctuation)
+#this removes quotes and all punctuation... basically anything that is not a-z
+corpus[[1]]$content
+
+# remove the stop words
+corpus = tm_map(corpus, removeWords, c(stopwords("en")))
+?tm_map
+ 
+corpus[[1]]$content
+
+# stem the document
+corpus = tm_map(corpus, stemDocument)
+corpus[[1]]$content
+
+##### create Bag of the words #####
+word_count = DocumentTermMatrix(corpus)
+word_count
+inspect(word_count[20:30, 10:25])
+#in inspect i'm looking at one section of the matrix (row 20-30 and column 10-25)
+findFreqTerms(word_count, lowfreq = 100)
+#lowfreq = this is where we're saying we want the list of words that appear 100 times in the tweet. 
+
+
+sparse = removeSparseTerms(word_count, 0.80 )
+sparse
+#sparse means there are many zeros (no frequency of word) so we can change this. 0.95 means that you're keeping the terms that appears in 5% or more of the reviews
+#if we lower it to .80 then we're only keeping words that appear in 20% or more of terms. when you run it, you can see that the terms count is 1 therefore only 1 word appears in 20% or more of the terms.
+
+# convert sparse matrix to a dataframe
+final_dataset <- as.data.frame(as.matrix(sparse))
+
+final_dataset$sentiment <- ifelse(pk$rating >= 7, "Positive", "Negative")
+#View(final_dataset)
+
+```
+
+
+```{r}
+
+
+#Partition dataset
+set.seed(123)
+train.index = sample(c(1:dim(final_dataset)[1]), dim(final_dataset)[1]*0.7)
+reviews.train = final_dataset[train.index, ]
+reviews.test = final_dataset[-train.index, ]
+
+#Here we can see that the dataset is not balanced so I will balance it before moving forward. 
+table(reviews.train$sentiment)/nrow(reviews.train)
+
+#Balance only train dataset
+library(ROSE)
+data.train.balanced.over = ovun.sample(sentiment ~ ., data=reviews.train, p=0.5, method="over")
+
+data.train.balanced.over = data.train.balanced.over$data
+table(data.train.balanced.over$sentiment)/nrow(data.train.balanced.over)
+
+data.train.balanced.over$sentiment_binary <- ifelse(data.train.balanced.over$sentiment == "Positive", 1, 0)
+reviews.test$sentiment_binary <- ifelse(reviews.test$sentiment == "Positive", 1, 0)
+
+nrow(data.train.balanced.over)
+nrow(reviews.test)
+
+#View(data.train.balanced.over)
+# View(reviews.test)
+
+
+
+##Logistic analysis##
+
+library(caret)
+
+null_model_sentiment <- glm(sentiment_binary ~ 1, data = data.train.balanced.over, family="binomial") 
+model_sentiment <- glm(sentiment_binary ~ ., data = data.train.balanced.over, family="binomial")
+
+forward_model_sentiment <- step(null_model_sentiment, scope = list(lower = null_model_sentiment, upper = model_sentiment), direction = "forward")
+summary(forward_model_sentiment)
+
+
+backward_model_sentiment <- step(model_sentiment, direction = "backward")
+summary(backward_model_sentiment)
+
+
+stepwise_model_sentiment <- step(model_sentiment, direction = "both")
+summary(stepwise_model_sentiment)
+
+data.train.balanced.over$sentiment <- NULL
+reviews.test$sentiment <- NULL
+
+logit.reviews <- glm(sentiment_binary ~ . , data = data.train.balanced.over, family = "binomial")
+summary(logit.reviews)
+
+
+##Confusion Matrix##
+?confusionMatrix
+
+predicted.logit.prob <- predict(logit.reviews, newdata = reviews.test, type = "response")
+predicted.logit.class <- ifelse(predicted.logit.prob > 0.5, 1, 0)
+reviews.test$sentiment_binary <- as.factor(reviews.test$sentiment_binary)
+
+
+library(caret)
+conf_matrix_Sentiment <- confusionMatrix(as.factor(predicted.logit.class), reviews.test$sentiment_binary)
+conf_matrix_Sentiment
+
+
+library(pROC)
+auc.reviews = roc(reviews.test$sentiment_binary, predicted.logit.prob)
+?roc
+auc(auc.reviews)
+plot(auc.reviews)
+auc.reviews
+```
+
+```{r}
+# View(data.train.balanced.over)
+library(rpart)
+library(rpart.plot)
+
+#Cart cross validation:
+Cart_model_sentiment_cross <- train(sentiment_binary ~ ., data = data.train.balanced.over, method = "rpart", trControl = train_control)
+Cart_model_sentiment_cross
+
+#optimal cp: 0.01625047 based on cross validation
+
+Cart_model_sentiment = rpart(sentiment_binary ~ ., data = data.train.balanced.over, method="class", control = rpart.control(cp = 0.01625047))
+prp(Cart_model_sentiment)
+
+
+CART_predict_sentiment = predict(Cart_model_sentiment, newdata = reviews.test, type = "class")
+
+
+CARTconfMatrixSentiment<- confusionMatrix(data = CART_predict_sentiment, reference = reviews.test$sentiment_binary)
+CARTconfMatrixSentiment
+
+#ROC
+CART_predict_sentiment = predict(Cart_model_sentiment, newdata = reviews.test, type = "prob")
+
+library(pROC)
+CART_roc_curve_sentiment = roc(response = reviews.test$sentiment_binary, predictor = CART_predict_sentiment[,2])
+auc(CART_roc_curve_sentiment)
+plot(CART_roc_curve_sentiment)
+```
