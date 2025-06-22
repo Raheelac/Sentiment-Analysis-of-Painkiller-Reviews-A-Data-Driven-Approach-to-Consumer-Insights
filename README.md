@@ -10,7 +10,7 @@ This project explores customer sentiment toward common painkillers using supervi
 - Provide business insights and recommendations for pharma/healthcare marketing and product strategy
 
 ## Dataset  
-- **Source**: [Kaggle – Predicting Pain Reliever Misuse/Abuse] (https://www.kaggle.com/datasets/thedevastator/predicting-pain-reliever-misuse-abuse)
+- **Source**: [Kaggle – Predicting Pain Reliever Misuse/Abuse](https://www.kaggle.com/datasets/thedevastator/predicting-pain-reliever-misuse-abuse)
 - **Records**: 2,500  
 - **Label**: Binary sentiment (1 = Positive, 0 = Negative)  
 - **Painkillers Included**: Tylenol, Advil, Aleve, Tramadol, Aspirin
